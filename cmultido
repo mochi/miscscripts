@@ -1,0 +1,58 @@
+#!/bin/sh
+# copyright 2008 Mochi Media, Inc.
+# example:
+# ./cmultido host1:host2:host3 ls /tmp
+
+
+exec chpst -P bash -c '
+
+SSH=${SSH:-ssh}
+user=$USER;
+sync="false";
+while getopts u:s opt; do
+  case "$opt" in
+    u) user="$OPTARG";;
+    s) sync="true";;
+    \?) echo >&2 \
+        "usage: $0 [-u USER] [-s]"
+        exit 1;;
+  esac
+done
+shift `expr $OPTIND - 1`
+
+hosts="$1"; shift
+
+cleanup() {
+  kill 0
+}
+
+ALT_HOST_COLOR_BASES=(
+ "0;32m" "0;36m" "0;35m" "0;33m" "1;32m" "1:36m" "1;35m"
+)
+
+no_color="\033[0m"
+
+max=0
+for host in $(echo "$hosts" | tr : " "); do
+  x=`echo $host | wc -c`
+  [ "$x" -gt "$max" ] && max="$x"
+done
+
+for host in $(echo "$hosts" | tr : " "); do
+  hostname=$(dig +short -x $host | cut -d"." -f1)
+  hash=`python -c "print abs(hash(\"${host}\"))"`
+  base=`expr ${hash} % ${#ALT_HOST_COLOR_BASES} + 1`
+  host_color="\033[${ALT_HOST_COLOR_BASES[${base}]}"
+  padded=`printf "%-${max}s" "$hostname($host)"`
+  if [[ "$sync" == "true" ]]; then
+    ( ${SSH} -t "${user}@${host}" "$@" 2>&1 | sed -e "s/^/$(echo -e $host_color)$padded: /" -e "s/$/$(echo -e $no_color)/" );
+  else
+    ( ${SSH} -t "${user}@${host}" "$@" 2>&1 | sed -e "s/^/$(echo -e $host_color)$padded: /" -e "s/$/$(echo -e $no_color)/" ) &
+  fi;
+done
+
+trap cleanup INT TERM
+
+wait
+
+' "$0" "$@"
